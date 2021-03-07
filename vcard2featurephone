@@ -1,0 +1,166 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Std;
+use Text::vCard::Addressbook;
+
+sub transform_vcard {
+    my ($name_length, $in_vcard, $out_address_book) = @_;
+
+    my $in_version = $in_vcard->version;
+    my $in_fullname = $in_vcard->fullname;
+    my $in_phones = $in_vcard->get( { 'node_type' => 'tel' } );
+    foreach my $in_phone ( @{$in_phones} ) {
+        my $in_type = $in_phone->types->[0];
+
+        my $out_vcard = $out_address_book->add_vcard;
+
+        my $out_type = "(" . $in_type . ")";
+
+        my $fullname_length = length $in_fullname;
+        my $type_length = length $out_type;
+        my $use_able_length = $name_length - $type_length;
+
+        if ($use_able_length <= 0) {
+            die "Length of name would be less or equal to 0: ", $in_fullname . $out_type;
+        }
+
+        my $out_fullname = substr($in_fullname, 0, $use_able_length) . $out_type;
+
+        $out_vcard->fullname($out_fullname);
+        $out_vcard->version($in_version);
+
+        my $out_phone = $out_vcard->add_node( { 'node_type' => 'tel',
+                                                'types' => $in_type } );
+        $out_phone->value($in_phone->value);
+    }
+}
+
+sub main {
+    my ($name_length, $in_file, $out_file) = @_;
+
+    my $in_address_book = 0;
+    if ($in_file) {
+        open FH, '<', $in_file or die $! . ": " . $in_file;
+        close FH;
+        $in_address_book = Text::vCard::Addressbook->new({
+            'source_file'  => $in_file, });
+    } else {
+        my $in_str = do { local $/; <STDIN> } ;
+        $in_address_book = Text::vCard::Addressbook->new({
+            'source_text'  => $in_str, });
+    }
+
+    my $out_address_book = Text::vCard::Addressbook->new;
+
+    foreach my $in_vcard ( $in_address_book->vcards() ) {
+        transform_vcard $name_length, $in_vcard, $out_address_book;
+    }
+
+    my $address_book_str = $out_address_book->export;
+
+    if ($out_file) {
+        open FH, '>', $out_file or die $! . ": " . $out_file;
+        print FH $address_book_str;
+        close FH;
+    } else {
+        print $address_book_str;
+    }
+}
+
+my $name_length = 0;
+my $in_file = 0;
+my $out_file = 0;
+
+my %options = (  );
+getopts("i:o:", \%options) or die(print_usage());
+
+$in_file = $options{i} if defined $options{i};
+$out_file = $options{o} if defined $options{o};
+
+
+if (scalar( @ARGV ) != 1) {
+    die(print_usage());
+}
+
+$name_length = $ARGV[0];
+
+main $name_length, $in_file, $out_file;
+
+sub print_usage {
+    print "vcard2featurephone [options] MaxLengthOfNames", "\n";
+    print "\n";
+    print "Options:", "\n";
+    print "\t-i\tThe input vcard file", "\n";
+    print "\t-o\tThe output vcard file", "\n";
+    print "\n";
+    print "For more information please use 'perldoc vcard2olphone'", "\n";
+    print "\n";
+}
+
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+vcard2featurephone - Transform a vcard address book to be able to be imported in an old phone
+
+=head1 SYNOPSIS
+
+vcard2featurephone [options] MaxLengthOfNames
+
+=head1 DESCRIPTION
+
+Feature phones might have limitations in the length of names of contacts. This
+script helps to transform a given vcard address book database to fit on such
+feature phones.
+
+For Example the following input vcard
+
+    BEGIN:VCARD
+    VERSION:3.0
+    FN:Bertolt Testinger
+    N:Testinger;Bertolt;;;
+    EMAIL;TYPE=INTERNET:Bertolt.testinger@beispiel.at
+    TEL;TYPE=CELL:+43 123 456 78 90
+    TEL;TYPE=WORK:+43 90 87 654 32 1
+    BDAY:1970-01-01
+    END:VCARD
+
+will be transformed to
+
+    BEGIN:VCARD
+    VERSION:3.0
+    FN:Bertolt Testin(cell)
+    TEL:+43 123 456 78 90
+    END:VCARD
+    BEGIN:VCARD
+    VERSION:3.0
+    FN:Bertolt Testin(work)
+    TEL:+43 90 87 654 32 1
+    END:VCARD
+
+with the argument MaxLengthOfNames set to 20.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -i
+
+The input vcard file. If not supplied, then STDIN is used as input stream.
+
+=item -o
+
+The output vcard file. If not supplied, then STDOUT is used as output stream.
+
+=back
+
+=head1 AUTHOR
+
+Richard Bäck <richard.baeck@mailbox.org>
+
+=cut
